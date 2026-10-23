@@ -1,0 +1,144 @@
+-- Serviços necessários
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- Configuração do Aimbot
+local aimbotEnabled = false
+local currentTarget = nil
+
+-- 1. Criar notificação na tela ("ATIVADO" pequeno e verde)
+local function showActivatedNotification()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "AimbotNotification"
+    -- Protege a UI caso o executor suporte
+    if syn and syn.protect_gui then
+        syn.protect_gui(screenGui)
+        screenGui.Parent = CoreGui
+    else
+        screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
+
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Size = UDim2.new(0, 200, 0, 50)
+    textLabel.Position = UDim2.new(0.5, -100, 0.1, 0) -- No topo centralizado
+    textLabel.BackgroundTransparency = 1
+    textLabel.Text = "ATIVADO"
+    textLabel.TextColor3 = Color3.fromRGB(0, 255, 0) -- Verde
+    textLabel.TextSize = 14 -- Bem pequeno
+    textLabel.Font = Enum.Font.SourceSansBold
+    textLabel.TextStrokeTransparency = 0.5 -- Dá um leve contorno para destacar
+
+    -- Remove o aviso após 2.5 segundos
+    task.delay(2.5, function()
+        if screenGui then
+            screenGui:Destroy()
+        end
+    end)
+end
+
+showActivatedNotification()
+
+-- 2. Função para encontrar o player mais próximo que está na sua frente e visível
+local function getBestTarget()
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+
+    local myRoot = character.HumanoidRootPart
+    local closestTarget = nil
+    local shortestDistance = math.huge
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local targetChar = player.Character
+            local humanoid = targetChar:FindFirstChildOfClass("Humanoid")
+            local targetPart = targetChar:FindFirstChild("Head") or targetChar:FindFirstChild("HumanoidRootPart")
+
+            if humanoid and humanoid.Health > 0 and targetPart then
+                -- Verifica se está na tela (visão da câmera)
+                local _, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                if onScreen then
+                    -- Checagem de Visão (Raycast para garantir que não há paredes no meio)
+                    local raycastParams = RaycastParams.new()
+                    raycastParams.FilterDescendantsInstances = {character, targetChar}
+                    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+                    raycastParams.IgnoreWater = true
+
+                    local raycastResult = workspace:Raycast(Camera.CFrame.Position, targetPart.Position - Camera.CFrame.Position, raycastParams)
+
+                    -- Se o raio chegou até o player sem bater em paredes/obstáculos
+                    if not raycastResult then
+                        -- Calcula a proximidade em relação ao centro da tela ou distância física
+                        local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                        local targetScreenPos, _ = Camera:WorldToViewportPoint(targetPart.Position)
+                        local screenDist = (Vector2.new(targetScreenPos.X, targetScreenPos.Y) - screenCenter).Magnitude
+
+                        -- Define um limite de raio na tela para considerar o alvo (ex: 150 pixels do centro)
+                        if screenDist < 150 and screenDist < shortestDistance then
+                            shortestDistance = screenDist
+                            closestTarget = targetPart
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return closestTarget
+end
+
+-- 3. Ativar/Desativar com a tecla "F"
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.KeyCode == Enum.KeyCode.F then
+        aimbotEnabled = not aimbotEnabled
+        if not aimbotEnabled then
+            currentTarget = nil
+        end
+    end
+end)
+
+-- 4. Loop principal do Aimbot
+RunService.RenderStepped:Connect(function()
+    if not aimbotEnabled then return end
+
+    -- Se já temos um alvo, valida se ele ainda está visível e vivo
+    if currentTarget then
+        local targetChar = currentTarget.Parent
+        local humanoid = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
+        
+        -- Condições para perder o alvo: Morreu, saiu da tela ou foi atrás de parede
+        local _, onScreen = Camera:WorldToViewportPoint(currentTarget.Position)
+        local character = LocalPlayer.Character
+        local obstructed = false
+
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            local raycastParams = RaycastParams.new()
+            raycastParams.FilterDescendantsInstances = {character, targetChar}
+            raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+            local raycastResult = workspace:Raycast(Camera.CFrame.Position, currentTarget.Position - Camera.CFrame.Position, raycastParams)
+            if raycastResult then
+                obstructed = true
+            end
+        end
+
+        if not humanoid or humanoid.Health <= 0 or not onScreen or obstructed then
+            currentTarget = nil -- Perdeu a visão ou o alvo morreu
+        end
+    end
+
+    -- Se não tiver um alvo válido no momento, procura um novo na sua frente
+    if not currentTarget then
+        currentTarget = getBestTarget()
+    end
+
+    -- Se encontrou/manteve o alvo, gruda a câmera nele
+    if currentTarget then
+        Camera.CFrame = CFrame.new(Camera.CFrame.Position, currentTarget.Position)
+    end
+end)
