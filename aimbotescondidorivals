@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
@@ -11,11 +12,11 @@ local Camera = workspace.CurrentCamera
 local aimbotEnabled = false
 local currentTarget = nil
 
--- 1. Criar notificação na tela ("ATIVADO" pequeno e verde)
-local function showActivatedNotification()
+-- 1. Notificação no centro da tela ("@MUULKMENU" pequeno e RGB por 5 segundos)
+local function showRGBNotification()
     local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "AimbotNotification"
-    -- Protege a UI caso o executor suporte
+    screenGui.Name = "MulkMenuNotification"
+    
     if syn and syn.protect_gui then
         syn.protect_gui(screenGui)
         screenGui.Parent = CoreGui
@@ -24,31 +25,42 @@ local function showActivatedNotification()
     end
 
     local textLabel = Instance.new("TextLabel")
-    textLabel.Size = UDim2.new(0, 200, 0, 50)
-    textLabel.Position = UDim2.new(0.5, -100, 0.1, 0) -- No topo centralizado
+    textLabel.Size = UDim2.new(0, 200, 0, 30)
+    textLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+    textLabel.Position = UDim2.new(0.5, 0, 0.5, 0) -- Exatamente no meio da tela
     textLabel.BackgroundTransparency = 1
-    textLabel.Text = "ATIVADO"
-    textLabel.TextColor3 = Color3.fromRGB(0, 255, 0) -- Verde
-    textLabel.TextSize = 14 -- Bem pequeno
+    textLabel.Text = "@MUULKMENU"
+    textLabel.TextSize = 14 -- Pequeno
     textLabel.Font = Enum.Font.SourceSansBold
-    textLabel.TextStrokeTransparency = 0.5 -- Dá um leve contorno para destacar
+    textLabel.TextStrokeTransparency = 0.3 -- Leve contorno escuro para destacar
+    textLabel.Parent = screenGui
 
-    -- Remove o aviso após 2.5 segundos
-    task.delay(2.5, function()
+    -- Loop de Efeito RGB
+    local rgbConnection
+    local hue = 0
+    rgbConnection = RunService.RenderStepped:Connect(function(deltaTime)
+        hue = (hue + deltaTime * 0.5) % 1 -- Alterna as cores em ciclo
+        textLabel.TextColor3 = Color3.fromHSV(hue, 1, 1)
+    end)
+
+    -- Remove a UI e cancela o RGB após 5 segundos
+    task.delay(5, function()
+        if rgbConnection then
+            rgbConnection:Disconnect()
+        end
         if screenGui then
             screenGui:Destroy()
         end
     end)
 end
 
-showActivatedNotification()
+showRGBNotification()
 
 -- 2. Função para encontrar o player mais próximo que está na sua frente e visível
 local function getBestTarget()
     local character = LocalPlayer.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
 
-    local myRoot = character.HumanoidRootPart
     local closestTarget = nil
     local shortestDistance = math.huge
 
@@ -72,12 +84,11 @@ local function getBestTarget()
 
                     -- Se o raio chegou até o player sem bater em paredes/obstáculos
                     if not raycastResult then
-                        -- Calcula a proximidade em relação ao centro da tela ou distância física
                         local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
                         local targetScreenPos, _ = Camera:WorldToViewportPoint(targetPart.Position)
                         local screenDist = (Vector2.new(targetScreenPos.X, targetScreenPos.Y) - screenCenter).Magnitude
 
-                        -- Define um limite de raio na tela para considerar o alvo (ex: 150 pixels do centro)
+                        -- Limite de raio na tela para considerar o alvo (150 pixels do centro)
                         if screenDist < 150 and screenDist < shortestDistance then
                             shortestDistance = screenDist
                             closestTarget = targetPart
@@ -112,7 +123,6 @@ RunService.RenderStepped:Connect(function()
         local targetChar = currentTarget.Parent
         local humanoid = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
         
-        -- Condições para perder o alvo: Morreu, saiu da tela ou foi atrás de parede
         local _, onScreen = Camera:WorldToViewportPoint(currentTarget.Position)
         local character = LocalPlayer.Character
         local obstructed = false
